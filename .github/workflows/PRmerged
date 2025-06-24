@@ -1,0 +1,78 @@
+explanation: 
+
+on: push with branches main, dev, staging: ensures your build job runs on all three for testing.
+
+on: pull_request + types: closed + branches: main: this triggers when a PR to main is closed.
+
+if: github.event.pull_request.merged == true: ensures the deploy job only runs if that PR was merged (and not just closed without merging).
+
+=============
+
+name: tealclimate-landing-page
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+      - staging
+  pull_request:
+    types:
+      - closed
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'  # Only run build on push events
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install frontend dependencies and build
+        run: |
+          cd frontend
+          npm install
+          npm run build
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm install
+
+  deploy:
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to AWS EC2
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd /home/ubuntu/teal-aws
+            git pull origin main
+
+            echo "Installing frontend dependencies and building..."
+            cd frontend
+            npm install
+            npm run build
+
+            echo "Installing backend dependencies..."
+            cd ../backend
+            npm install
+
+            echo "Restarting backend..."
+            pm2 delete teal-aws || true
+            pm2 start npm --name "teal-aws" -- run prod
